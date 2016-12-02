@@ -18,38 +18,38 @@
 #include <math.h>
 #include <pthread.h>
 
-#define MAX_STRING 100
+#define MAX_STRING 100                  // 各种字符串的最大长度
 #define EXP_TABLE_SIZE 1000
 #define MAX_EXP 6
 #define MAX_SENTENCE_LENGTH 1000
-#define MAX_CODE_LENGTH 40
+#define MAX_CODE_LENGTH 40              // 霍夫曼编码最大长度
 
-const int vocab_hash_size = 30000000;  // Maximum 30 * 0.7 = 21M words in the vocabulary
+const int vocab_hash_size = 30000000;   // 最大哈希值大小, 最终最大字典大小为其乘 0.7 (见 287 行), 最大字典大小是根据读入的词语数量动态增长的(见 129 行), 但是上线不会超过此值
 
-typedef float real;                    // Precision of float numbers
+typedef float real;                     // 规定所有浮点数以 real 的精度表示
 
-struct vocab_word {
-  long long cn;
-  int *point;
-  char *word, *code, codelen;
+struct vocab_word {                     // 霍夫曼编码树中的节点类型 TODO
+  long long cn;                     // 此节点表示的词语在训练语料的词频
+  int *point;                       // 指向下个节点的指针
+  char *word, *code, codelen;       // 此节点表示的词语的字符串, 霍夫曼编码的字符串, 此节点霍夫曼编码的长度
 };
 
-char train_file[MAX_STRING], output_file[MAX_STRING];
+char train_file[MAX_STRING], output_file[MAX_STRING];   // 训练文本文件和输出文件的文件名
 char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
-struct vocab_word *vocab;
+struct vocab_word *vocab;               // 霍夫曼编码树的根节点, 同时也是所有词语的字典
 int binary = 0, cbow = 1, debug_mode = 2, window = 5, min_count = 5, num_threads = 12, min_reduce = 1;
-int *vocab_hash;
-long long vocab_max_size = 1000, vocab_size = 0, layer1_size = 100;
+int *vocab_hash;                        // 用哈希表的方式储存词语在字典中的索引
+long long vocab_max_size = 1000, vocab_size = 0, layer1_size = 100; // 当前字典最大大小, 当前字典大小
 long long train_words = 0, word_count_actual = 0, iter = 5, file_size = 0, classes = 0;
 real alpha = 0.025, starting_alpha, sample = 1e-3;
 real *syn0, *syn1, *syn1neg, *expTable;
 clock_t start;
 
-int hs = 0, negative = 5;
+int hs = 0, negative = 5;               // hierarchical softmax 标识, negative sampling 标识
 const int table_size = 1e8;
-int *table;
+int *table;                             // 均值分布表
 
-void InitUnigramTable() {
+void InitUnigramTable() {               // 初始化均值分布表, 用于 TODO
   int a, i;
   double train_words_pow = 0;
   double d1, power = 0.75;
@@ -68,38 +68,38 @@ void InitUnigramTable() {
 }
 
 // Reads a single word from a file, assuming space + tab + EOL to be word boundaries
-void ReadWord(char *word, FILE *fin) {
-  int a = 0, ch;
-  while (!feof(fin)) {
-    ch = fgetc(fin);
-    if (ch == 13) continue;
+void ReadWord(char *word, FILE *fin) {  // 从文件中读取一个词语, 以空格/tab/EOF作为词语之间的分隔符, 换行符也算作一个词语, 以'</s>'来表示. 读取过程中按照字符进行读取
+  int a = 0, ch;                        // 当前读到的词语的长度, 当前读到的字母
+  while (!feof(fin)) {                  // 判断文件末尾
+    ch = fgetc(fin);                    // 读取一个字符
+    if (ch == 13) continue;             // 忽略'\r'
     if ((ch == ' ') || (ch == '\t') || (ch == '\n')) {
       if (a > 0) {
-        if (ch == '\n') ungetc(ch, fin);
+        if (ch == '\n') ungetc(ch, fin);    // 如果已经读到字符并且遇到换行符, 由于换行符也算一个词语, 所以将换行符放回流中以便下次可以被读到
         break;
       }
       if (ch == '\n') {
-        strcpy(word, (char *)"</s>");
+        strcpy(word, (char *)"</s>");   // 将换行符用'</s>'来表示
         return;
       } else continue;
     }
     word[a] = ch;
     a++;
-    if (a >= MAX_STRING - 1) a--;   // Truncate too long words
+    if (a >= MAX_STRING - 1) a--;       // 如果读取到的词语大于规定的字符串最长长度, 则忽略超出的部分
   }
-  word[a] = 0;
+  word[a] = 0;                          // 标记字符串结束, 方法为将字符数组的最后一位赋值为'\0'
 }
 
 // Returns hash value of a word
-int GetWordHash(char *word) {
+int GetWordHash(char *word) {           // 计算词语的哈希值
   unsigned long long a, hash = 0;
-  for (a = 0; a < strlen(word); a++) hash = hash * 257 + word[a];
-  hash = hash % vocab_hash_size;
+  for (a = 0; a < strlen(word); a++) hash = hash * 257 + word[a];   // 计算方法十分简单粗暴
+  hash = hash % vocab_hash_size;        // 取模保证哈希值在最大哈希值之内
   return hash;
 }
 
 // Returns position of a word in the vocabulary; if the word is not found, returns -1
-int SearchVocab(char *word) {
+int SearchVocab(char *word) {           // 根据词语字符串得到词语在字典中的索引
   unsigned int hash = GetWordHash(word);
   while (1) {
     if (vocab_hash[hash] == -1) return -1;
@@ -110,7 +110,7 @@ int SearchVocab(char *word) {
 }
 
 // Reads a word and returns its index in the vocabulary
-int ReadWordIndex(FILE *fin) {
+int ReadWordIndex(FILE *fin) {          // 从文件中读取一个词语并获取其在字典中的索引
   char word[MAX_STRING];
   ReadWord(word, fin);
   if (feof(fin)) return -1;
@@ -118,7 +118,7 @@ int ReadWordIndex(FILE *fin) {
 }
 
 // Adds a word to the vocabulary
-int AddWordToVocab(char *word) {
+int AddWordToVocab(char *word) {        // 将词语添加到字典中
   unsigned int hash, length = strlen(word) + 1;
   if (length > MAX_STRING) length = MAX_STRING;
   vocab[vocab_size].word = (char *)calloc(length, sizeof(char));
@@ -126,7 +126,7 @@ int AddWordToVocab(char *word) {
   vocab[vocab_size].cn = 0;
   vocab_size++;
   // Reallocate memory if needed
-  if (vocab_size + 2 >= vocab_max_size) {
+  if (vocab_size + 2 >= vocab_max_size) {   // 如果添加词语后字典的大小超出当前字典最大大小, 则将最大字典大小扩大1000
     vocab_max_size += 1000;
     vocab = (struct vocab_word *)realloc(vocab, vocab_max_size * sizeof(struct vocab_word));
   }
@@ -137,7 +137,7 @@ int AddWordToVocab(char *word) {
 }
 
 // Used later for sorting by word counts
-int VocabCompare(const void *a, const void *b) {
+int VocabCompare(const void *a, const void *b) {    // 下面字典排序函数中使用到的辅助函数, 比较两个词语的词频
     return ((struct vocab_word *)b)->cn - ((struct vocab_word *)a)->cn;
 }
 
@@ -612,7 +612,7 @@ void TrainModel() {
   fclose(fo);
 }
 
-int ArgPos(char *str, int argc, char **argv) {
+int ArgPos(char *str, int argc, char **argv) {  // 用来处理命令行参数的辅助函数, 在 main 中调用
   int a;
   for (a = 1; a < argc; a++) if (!strcmp(str, argv[a])) {
     if (a == argc - 1) {
@@ -678,15 +678,15 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-read-vocab", argc, argv)) > 0) strcpy(read_vocab_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-debug", argc, argv)) > 0) debug_mode = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-binary", argc, argv)) > 0) binary = atoi(argv[i + 1]);
-  if ((i = ArgPos((char *)"-cbow", argc, argv)) > 0) cbow = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-cbow", argc, argv)) > 0) cbow = atoi(argv[i + 1]);                      // 设置 CBOW 标识
   if (cbow) alpha = 0.05;
   if ((i = ArgPos((char *)"-alpha", argc, argv)) > 0) alpha = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-output", argc, argv)) > 0) strcpy(output_file, argv[i + 1]);
-  if ((i = ArgPos((char *)"-window", argc, argv)) > 0) window = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-window", argc, argv)) > 0) window = atoi(argv[i + 1]);                  // 设置窗口大小
   if ((i = ArgPos((char *)"-sample", argc, argv)) > 0) sample = atof(argv[i + 1]);
-  if ((i = ArgPos((char *)"-hs", argc, argv)) > 0) hs = atoi(argv[i + 1]);
-  if ((i = ArgPos((char *)"-negative", argc, argv)) > 0) negative = atoi(argv[i + 1]);
-  if ((i = ArgPos((char *)"-threads", argc, argv)) > 0) num_threads = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-hs", argc, argv)) > 0) hs = atoi(argv[i + 1]);                          // 设置 hierarchical softmax 标识
+  if ((i = ArgPos((char *)"-negative", argc, argv)) > 0) negative = atoi(argv[i + 1]);              // 设置 negative sampling 标识
+  if ((i = ArgPos((char *)"-threads", argc, argv)) > 0) num_threads = atoi(argv[i + 1]);            // 设置线程数量
   if ((i = ArgPos((char *)"-iter", argc, argv)) > 0) iter = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-min-count", argc, argv)) > 0) min_count = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-classes", argc, argv)) > 0) classes = atoi(argv[i + 1]);

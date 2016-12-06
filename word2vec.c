@@ -21,7 +21,7 @@
 #define MAX_STRING 100                  // 各种字符串的最大长度
 #define EXP_TABLE_SIZE 1000
 #define MAX_EXP 6
-#define MAX_SENTENCE_LENGTH 1000
+#define MAX_SENTENCE_LENGTH 1000        // 最大句子长度
 #define MAX_CODE_LENGTH 40              // 霍夫曼编码最大长度
 
 const int vocab_hash_size = 30000000;   // 最大哈希值大小, 最终最大字典大小为其乘 0.7 (见 287 行), 最大字典大小是根据读入的词语数量动态增长的(见 129 行), 但是上线不会超过此值
@@ -42,14 +42,14 @@ int *vocab_hash;                        // 用哈希表的方式储存词语在�
 long long vocab_max_size = 1000, vocab_size = 0, layer1_size = 100; // 当前字典最大大小, 当前字典大小
 long long train_words = 0, word_count_actual = 0, iter = 5, file_size = 0, classes = 0;
 real alpha = 0.025, starting_alpha, sample = 1e-3;
-real *syn0, *syn1, *syn1neg, *expTable;
+real *syn0, *syn1, *syn1neg, *expTable; // 储存 input embedding(最终词向量), output embedding,TODO
 clock_t start;
 
 int hs = 0, negative = 5;               // hierarchical softmax 标识, negative sampling 标识
 const int table_size = 1e8;
 int *table;                             // 均值分布表
 
-void InitUnigramTable() {               // 初始化均值分布表, 用于 TODO
+void InitUnigramTable() {               // 初始化均值分布表, 用于 negative sampling 随机选取负例
   int a, i;
   double train_words_pow = 0;
   double d1, power = 0.75;
@@ -194,7 +194,7 @@ void ReduceVocab() {
 
 // Create binary Huffman tree using the word counts
 // Frequent words will have short uniqe binary codes
-void CreateBinaryTree() {
+void CreateBinaryTree() {               // 创建霍夫曼编码树
   long long a, b, i, min1i, min2i, pos1, pos2, point[MAX_CODE_LENGTH];
   char code[MAX_CODE_LENGTH];
   long long *count = (long long *)calloc(vocab_size * 2 + 1, sizeof(long long));
@@ -359,19 +359,19 @@ void InitNet() {
   CreateBinaryTree();
 }
 
-void *TrainModelThread(void *id) {
+void *TrainModelThread(void *id) {      // 训练词向量线程
   long long a, b, d, cw, word, last_word, sentence_length = 0, sentence_position = 0;
-  long long word_count = 0, last_word_count = 0, sen[MAX_SENTENCE_LENGTH + 1];
+  long long word_count = 0, last_word_count = 0, sen[MAX_SENTENCE_LENGTH + 1];  // 词语计数, TODO啥, 词语数组, 表示一个句子(储存词语在字典中的索引)
   long long l1, l2, c, target, label, local_iter = iter;
   unsigned long long next_random = (long long)id;
   real f, g;
-  clock_t now;
+  clock_t now;                          // 用于储存当前时间
   real *neu1 = (real *)calloc(layer1_size, sizeof(real));
   real *neu1e = (real *)calloc(layer1_size, sizeof(real));
-  FILE *fi = fopen(train_file, "rb");
-  fseek(fi, file_size / (long long)num_threads * (long long)id, SEEK_SET);
+  FILE *fi = fopen(train_file, "rb");   // 读入训练语料文件指针
+  fseek(fi, file_size / (long long)num_threads * (long long)id, SEEK_SET);  // 根据当前线程 ID 从相应的地方开始读取语料文件
   while (1) {
-    if (word_count - last_word_count > 10000) {
+    if (word_count - last_word_count > 10000) { // 输出训练进度和速度, 并更新学习率
       word_count_actual += word_count - last_word_count;
       last_word_count = word_count;
       if ((debug_mode > 1)) {
@@ -381,25 +381,25 @@ void *TrainModelThread(void *id) {
          word_count_actual / ((real)(now - start + 1) / (real)CLOCKS_PER_SEC * 1000));
         fflush(stdout);
       }
-      alpha = starting_alpha * (1 - word_count_actual / (real)(iter * train_words + 1));
-      if (alpha < starting_alpha * 0.0001) alpha = starting_alpha * 0.0001;
+      alpha = starting_alpha * (1 - word_count_actual / (real)(iter * train_words + 1));    // 根据当前已经学到的词的数量更新学习率
+      if (alpha < starting_alpha * 0.0001) alpha = starting_alpha * 0.0001; // 保证学习率下限是初始学习率的 0.01%
     }
-    if (sentence_length == 0) {
+    if (sentence_length == 0) {         // 句子长度为零时读取一个句子
       while (1) {
-        word = ReadWordIndex(fi);
+        word = ReadWordIndex(fi);       // 从文件中读取一个词语
         if (feof(fi)) break;
-        if (word == -1) continue;
+        if (word == -1) continue;       // 同上一行, 判断文件末尾(见 116 行)
         word_count++;
-        if (word == 0) break;
+        if (word == 0) break;           // 读取到换行符时截断句子
         // The subsampling randomly discards frequent words while keeping the ranking same
-        if (sample > 0) {
+        if (sample > 0) {               // subsampling TODO未理解
           real ran = (sqrt(vocab[word].cn / (sample * train_words)) + 1) * (sample * train_words) / vocab[word].cn;
           next_random = next_random * (unsigned long long)25214903917 + 11;
           if (ran < (next_random & 0xFFFF) / (real)65536) continue;
         }
-        sen[sentence_length] = word;
-        sentence_length++;
-        if (sentence_length >= MAX_SENTENCE_LENGTH) break;
+        sen[sentence_length] = word;    // 将词语存入句子数组中
+        sentence_length++;              // 记录句子长度
+        if (sentence_length >= MAX_SENTENCE_LENGTH) break;  // 当句子长度超过最大句子长度时截断
       }
       sentence_position = 0;
     }
@@ -541,31 +541,31 @@ void *TrainModelThread(void *id) {
   pthread_exit(NULL);
 }
 
-void TrainModel() {
+void TrainModel() {                     // 训练模型
   long a, b, c, d;
-  FILE *fo;
-  pthread_t *pt = (pthread_t *)malloc(num_threads * sizeof(pthread_t));
+  FILE *fo;                             // 输出文件指针
+  pthread_t *pt = (pthread_t *)malloc(num_threads * sizeof(pthread_t)); // 线程数组
   printf("Starting training using file %s\n", train_file);
-  starting_alpha = alpha;
-  if (read_vocab_file[0] != 0) ReadVocab(); else LearnVocabFromTrainFile();
-  if (save_vocab_file[0] != 0) SaveVocab();
-  if (output_file[0] == 0) return;
-  InitNet();
-  if (negative > 0) InitUnigramTable();
-  start = clock();
-  for (a = 0; a < num_threads; a++) pthread_create(&pt[a], NULL, TrainModelThread, (void *)a);
-  for (a = 0; a < num_threads; a++) pthread_join(pt[a], NULL);
+  starting_alpha = alpha;               // 初始学习率
+  if (read_vocab_file[0] != 0) ReadVocab(); else LearnVocabFromTrainFile(); // 如果命令行参数中给定了字典文件, 则读取, 否则从语料库中建立字典
+  if (save_vocab_file[0] != 0) SaveVocab(); // 如果命令行参数标明要储存字典文件, 则储存
+  if (output_file[0] == 0) return;      // 若没有指定输出文件则退出程序
+  InitNet();                            // 初始化网络 TODO
+  if (negative > 0) InitUnigramTable(); // 如果使用 negative sampling, 初始化均值分布表
+  start = clock();                      // 记录程序开始时间
+  for (a = 0; a < num_threads; a++) pthread_create(&pt[a], NULL, TrainModelThread, (void *)a);  // 根据线程数量参数建立相应数量线程
+  for (a = 0; a < num_threads; a++) pthread_join(pt[a], NULL);  // 开始执行各线程
   fo = fopen(output_file, "wb");
-  if (classes == 0) {
+  if (classes == 0) {                   // 储存词语向量而不是分类
     // Save the word vectors
-    fprintf(fo, "%lld %lld\n", vocab_size, layer1_size);
-    for (a = 0; a < vocab_size; a++) {
+    fprintf(fo, "%lld %lld\n", vocab_size, layer1_size);    // 输出文件第一行输出字典大小和第一层大小(向量维数)
+    for (a = 0; a < vocab_size; a++) {                      // 输出单词及其对应的词向量
       fprintf(fo, "%s ", vocab[a].word);
-      if (binary) for (b = 0; b < layer1_size; b++) fwrite(&syn0[a * layer1_size + b], sizeof(real), 1, fo);
-      else for (b = 0; b < layer1_size; b++) fprintf(fo, "%lf ", syn0[a * layer1_size + b]);
+      if (binary) for (b = 0; b < layer1_size; b++) fwrite(&syn0[a * layer1_size + b], sizeof(real), 1, fo);    // 若命令行标记以二进制方式输出, 则以二进制格式输出
+      else for (b = 0; b < layer1_size; b++) fprintf(fo, "%lf ", syn0[a * layer1_size + b]);                    // 输出词向量
       fprintf(fo, "\n");
     }
-  } else {
+  } else {                              // 储存词语分类而不是向量, 使用 K-means 算法对词向量进行分类
     // Run K-means on the word vectors
     int clcn = classes, iter = 10, closeid;
     int *centcn = (int *)malloc(classes * sizeof(int));
@@ -683,20 +683,20 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-alpha", argc, argv)) > 0) alpha = atof(argv[i + 1]);                    // 设置初始学习率
   if ((i = ArgPos((char *)"-output", argc, argv)) > 0) strcpy(output_file, argv[i + 1]);            // 词向量储存文件
   if ((i = ArgPos((char *)"-window", argc, argv)) > 0) window = atoi(argv[i + 1]);                  // 设置窗口大小
-  if ((i = ArgPos((char *)"-sample", argc, argv)) > 0) sample = atof(argv[i + 1]);                  //
+  if ((i = ArgPos((char *)"-sample", argc, argv)) > 0) sample = atof(argv[i + 1]);                  // TODO
   if ((i = ArgPos((char *)"-hs", argc, argv)) > 0) hs = atoi(argv[i + 1]);                          // 设置 hierarchical softmax 标识
   if ((i = ArgPos((char *)"-negative", argc, argv)) > 0) negative = atoi(argv[i + 1]);              // 设置 negative sampling 标识
   if ((i = ArgPos((char *)"-threads", argc, argv)) > 0) num_threads = atoi(argv[i + 1]);            // 设置线程数量
   if ((i = ArgPos((char *)"-iter", argc, argv)) > 0) iter = atoi(argv[i + 1]);                      // 设置多训练轮数
   if ((i = ArgPos((char *)"-min-count", argc, argv)) > 0) min_count = atoi(argv[i + 1]);            // 设置最低词频
   if ((i = ArgPos((char *)"-classes", argc, argv)) > 0) classes = atoi(argv[i + 1]);                // 输出词类或者词向量
-  vocab = (struct vocab_word *)calloc(vocab_max_size, sizeof(struct vocab_word));
-  vocab_hash = (int *)calloc(vocab_hash_size, sizeof(int));
-  expTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
-  for (i = 0; i < EXP_TABLE_SIZE; i++) {
+  vocab = (struct vocab_word *)calloc(vocab_max_size, sizeof(struct vocab_word));                   // 为字典数组开空间
+  vocab_hash = (int *)calloc(vocab_hash_size, sizeof(int));                                         // 为字典的哈希索引表开空间
+  expTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));                                   // 为 sigmoid 计算表开空间
+  for (i = 0; i < EXP_TABLE_SIZE; i++) {                                                            // 生成 sigmoid 计算表
     expTable[i] = exp((i / (real)EXP_TABLE_SIZE * 2 - 1) * MAX_EXP); // Precompute the exp() table
     expTable[i] = expTable[i] / (expTable[i] + 1);                   // Precompute f(x) = x / (x + 1)
   }
-  TrainModel();
+  TrainModel();                                                                                     // 开始训练
   return 0;
 }

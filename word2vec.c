@@ -30,14 +30,14 @@ typedef float real;                     // 规定所有浮点数以 real 的精�
 
 struct vocab_word {                     // 霍夫曼编码树中的节点类型 TODO
   long long cn;                     // 此节点表示的词语在训练语料的词频
-  int *point;                       // 指向下个节点的指针
+  int *point;                       // 储存词语在霍夫曼编码树中的TODO
   char *word, *code, codelen;       // 此节点表示的词语的字符串, 霍夫曼编码的字符串, 此节点霍夫曼编码的长度
 };
 
 char train_file[MAX_STRING], output_file[MAX_STRING];   // 训练文本文件和输出文件的文件名
 char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 struct vocab_word *vocab;               // 霍夫曼编码树的根节点, 同时也是所有词语的字典
-int binary = 0, cbow = 1, debug_mode = 2, window = 5, min_count = 5, num_threads = 12, min_reduce = 1;
+int binary = 0, cbow = 1, debug_mode = 2, window = 5, min_count = 5, num_threads = 12, min_reduce = 1;  // 以二进制储存标识, 以 cbow 模型训练标识, 调试模式标识, 训练窗口大小, TODO
 int *vocab_hash;                        // 用哈希表的方式储存词语在字典中的索引
 long long vocab_max_size = 1000, vocab_size = 0, layer1_size = 100; // 当前字典最大大小, 当前字典大小
 long long train_words = 0, word_count_actual = 0, iter = 5, file_size = 0, classes = 0; // TODO, 当前所有线程读取到的词语总数, 训练轮数, TODO文件大小, 词语分类数
@@ -195,18 +195,18 @@ void ReduceVocab() {
 // Create binary Huffman tree using the word counts
 // Frequent words will have short uniqe binary codes
 void CreateBinaryTree() {               // 创建霍夫曼编码树
-  long long a, b, i, min1i, min2i, pos1, pos2, point[MAX_CODE_LENGTH];
-  char code[MAX_CODE_LENGTH];
-  long long *count = (long long *)calloc(vocab_size * 2 + 1, sizeof(long long));
-  long long *binary = (long long *)calloc(vocab_size * 2 + 1, sizeof(long long));
-  long long *parent_node = (long long *)calloc(vocab_size * 2 + 1, sizeof(long long));
+  long long a, b, i, min1i, min2i, pos1, pos2, point[MAX_CODE_LENGTH];  // for 循环索引, for 循环索引及临时变量, 字典索引变量, 字典索引变量, 字典索引变量, 字典索引变量,
+  char code[MAX_CODE_LENGTH];           // 用于储存反向的霍夫曼编码
+  long long *count = (long long *)calloc(vocab_size * 2 + 1, sizeof(long long));    // 储存霍夫曼编码树各叶子节点及中间节点的词频
+  long long *binary = (long long *)calloc(vocab_size * 2 + 1, sizeof(long long));   // 储存各节点在霍夫曼编码树中是自己父亲的哪个孩子
+  long long *parent_node = (long long *)calloc(vocab_size * 2 + 1, sizeof(long long));  // 储存霍夫曼编码树各叶子节点及中间节点的父节点
   for (a = 0; a < vocab_size; a++) count[a] = vocab[a].cn;
   for (a = vocab_size; a < vocab_size * 2; a++) count[a] = 1e15;
-  pos1 = vocab_size - 1;
-  pos2 = vocab_size;
+  pos1 = vocab_size - 1;                // 用于搜索叶子节点
+  pos2 = vocab_size;                    // 用于搜索中间节点
   // Following algorithm constructs the Huffman tree by adding one node at a time
   for (a = 0; a < vocab_size - 1; a++) {
-    // First, find two smallest nodes 'min1, min2'
+    // First, find two smallest nodes 'min1, min2'.  寻找中间节点和叶子节点中词频最小的两个
     if (pos1 >= 0) {
       if (count[pos1] < count[pos2]) {
         min1i = pos1;
@@ -231,27 +231,27 @@ void CreateBinaryTree() {               // 创建霍夫曼编码树
       min2i = pos2;
       pos2++;
     }
-    count[vocab_size + a] = count[min1i] + count[min2i];
+    count[vocab_size + a] = count[min1i] + count[min2i];    // 根据最小的两个节点创造一个新的节点
     parent_node[min1i] = vocab_size + a;
-    parent_node[min2i] = vocab_size + a;
-    binary[min2i] = 1;
+    parent_node[min2i] = vocab_size + a;    // 设置新节点为两个最小节点的父节点
+    binary[min2i] = 1;                  // 标记词频较大的节点是父亲的 1 孩子, 较小的为 0 孩子
   }
   // Now assign binary code to each vocabulary word
   for (a = 0; a < vocab_size; a++) {
     b = a;
     i = 0;
     while (1) {
-      code[i] = binary[b];
+      code[i] = binary[b];              // 计算反向的霍夫曼编码
       point[i] = b;
       i++;
       b = parent_node[b];
       if (b == vocab_size * 2 - 2) break;
     }
-    vocab[a].codelen = i;
+    vocab[a].codelen = i;               // 储存霍夫曼编码长度
     vocab[a].point[0] = vocab_size - 2;
     for (b = 0; b < i; b++) {
-      vocab[a].code[i - b - 1] = code[b];
-      vocab[a].point[i - b] = point[b] - vocab_size;
+      vocab[a].code[i - b - 1] = code[b];   // 将逆序霍夫曼编码反向并储存在字典的词语中
+      vocab[a].point[i - b] = point[b] - vocab_size;    // TODO
     }
   }
   free(count);
@@ -338,7 +338,7 @@ void ReadVocab() {
 void InitNet() {
   long long a, b;
   unsigned long long next_random = 1;
-  a = posix_memalign((void **)&syn0, 128, (long long)vocab_size * layer1_size * sizeof(real));
+  a = posix_memalign((void **)&syn0, 128, (long long)vocab_size * layer1_size * sizeof(real));  // 为 input embedding(词向量)对齐开辟数组空间
   if (syn0 == NULL) {printf("Memory allocation failed\n"); exit(1);}
   if (hs) {
     a = posix_memalign((void **)&syn1, 128, (long long)vocab_size * layer1_size * sizeof(real));
@@ -352,7 +352,7 @@ void InitNet() {
     for (a = 0; a < vocab_size; a++) for (b = 0; b < layer1_size; b++)
      syn1neg[a * layer1_size + b] = 0;
   }
-  for (a = 0; a < vocab_size; a++) for (b = 0; b < layer1_size; b++) {
+  for (a = 0; a < vocab_size; a++) for (b = 0; b < layer1_size; b++) {  // 随机初始化 input embedding(词向量)
     next_random = next_random * (unsigned long long)25214903917 + 11;
     syn0[a * layer1_size + b] = (((next_random & 0xFFFF) / (real)65536) - 0.5) / layer1_size;
   }
@@ -364,7 +364,7 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
   long long word_count = 0, last_word_count = 0, sen[MAX_SENTENCE_LENGTH + 1];  // 此线程总共读取了多少词语, 上次读取了多少个词语, 词语数组(表示一个句子, 储存词语在字典中的索引)
   long long l1, l2, c, target, label, local_iter = iter;
   unsigned long long next_random = (long long)id;
-  real f, g;
+  real f, g;                            // TODO
   clock_t now;                          // 用于储存当前时间
   real *neu1 = (real *)calloc(layer1_size, sizeof(real));
   real *neu1e = (real *)calloc(layer1_size, sizeof(real));
@@ -403,7 +403,7 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
       }
       sentence_position = 0;
     }
-    if (feof(fi) || (word_count > train_words / num_threads)) { // 读到文件末尾或总读词数达到此线程上限时
+    if (feof(fi) || (word_count > train_words / num_threads)) { // 读到文件末尾或总读词数达到此线程上限时操作
       word_count_actual += word_count - last_word_count;    // 更新所有线程已读取词语数量
       local_iter--;                     // 结束一轮训练
       if (local_iter == 0) break;       // 所有轮数训练完后退出线程
@@ -421,21 +421,21 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
     b = next_random % window;
     if (cbow) {  //train the cbow architecture.  CBOW 训练代码
       // in -> hidden.  从输入层(词向量)向中间层传播
-      cw = 0;
-      for (a = b; a < window * 2 + 1 - b; a++) if (a != window) {
-        c = sentence_position - window + a;
+      cw = 0;                           // 用于储存窗口内有多少词语传入神经网络
+      for (a = b; a < window * 2 + 1 - b; a++) if (a != window) { // 扫一遍当前词语 window 内的所有词语, 并将它们的 embedding 传入神经网络
+        c = sentence_position - window + a; // 词语索引
         if (c < 0) continue;
         if (c >= sentence_length) continue;
-        last_word = sen[c];
+        last_word = sen[c];             // 记住上一个单词的索引
         if (last_word == -1) continue;
-        for (c = 0; c < layer1_size; c++) neu1[c] += syn0[c + last_word * layer1_size];
+        for (c = 0; c < layer1_size; c++) neu1[c] += syn0[c + last_word * layer1_size]; // 将当前词语 windows 内的所有词语的向量加起来, 然后再做算术平均(见 435 行)作为输入层到隐藏层的输入, CBOW 模型的关键
         cw++;
       }
-      if (cw) {
-        for (c = 0; c < layer1_size; c++) neu1[c] /= cw;
-        if (hs) for (d = 0; d < vocab[word].codelen; d++) {
+      if (cw) {                         // 如果有词语传入, 则进行正反向传播和数据更新
+        for (c = 0; c < layer1_size; c++) neu1[c] /= cw;    // CBOW 模型中作算术平均的一步
+        if (hs) for (d = 0; d < vocab[word].codelen; d++) { // 如果使用 hierarchical softmax, 则扫描当前词语霍夫曼编码的每一位
           f = 0;
-          l2 = vocab[word].point[d] * layer1_size;
+          l2 = vocab[word].point[d] * layer1_size;  // TODO point 是什么
           // Propagate hidden -> output
           for (c = 0; c < layer1_size; c++) f += neu1[c] * syn1[c + l2];
           if (f <= -MAX_EXP) continue;
@@ -469,7 +469,7 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
           for (c = 0; c < layer1_size; c++) neu1e[c] += g * syn1neg[c + l2];
           for (c = 0; c < layer1_size; c++) syn1neg[c + l2] += g * neu1[c];
         }
-        // hidden -> in
+        // hidden -> in.  将隐藏层的内容反传给输入层(word embedding)
         for (a = b; a < window * 2 + 1 - b; a++) if (a != window) {
           c = sentence_position - window + a;
           if (c < 0) continue;

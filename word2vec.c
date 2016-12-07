@@ -40,7 +40,7 @@ struct vocab_word *vocab;               // 霍夫曼编码树的根节点, 同�
 int binary = 0, cbow = 1, debug_mode = 2, window = 5, min_count = 5, num_threads = 12, min_reduce = 1;
 int *vocab_hash;                        // 用哈希表的方式储存词语在字典中的索引
 long long vocab_max_size = 1000, vocab_size = 0, layer1_size = 100; // 当前字典最大大小, 当前字典大小
-long long train_words = 0, word_count_actual = 0, iter = 5, file_size = 0, classes = 0;
+long long train_words = 0, word_count_actual = 0, iter = 5, file_size = 0, classes = 0; // TODO, 当前所有线程读取到的词语总数, 训练轮数, TODO文件大小, 词语分类数
 real alpha = 0.025, starting_alpha, sample = 1e-3;
 real *syn0, *syn1, *syn1neg, *expTable; // 储存 input embedding(最终词向量), output embedding,TODO
 clock_t start;
@@ -360,8 +360,8 @@ void InitNet() {
 }
 
 void *TrainModelThread(void *id) {      // 训练词向量线程
-  long long a, b, d, cw, word, last_word, sentence_length = 0, sentence_position = 0;
-  long long word_count = 0, last_word_count = 0, sen[MAX_SENTENCE_LENGTH + 1];  // 词语计数, TODO啥, 词语数组, 表示一个句子(储存词语在字典中的索引)
+  long long a, b, d, cw, word, last_word, sentence_length = 0, sentence_position = 0;   // for 循环索引变量, TODO, TODO, TODO, 当前处理词语, TODO, 句子长度, 句子索引变量
+  long long word_count = 0, last_word_count = 0, sen[MAX_SENTENCE_LENGTH + 1];  // 此线程总共读取了多少词语, 上次读取了多少个词语, 词语数组(表示一个句子, 储存词语在字典中的索引)
   long long l1, l2, c, target, label, local_iter = iter;
   unsigned long long next_random = (long long)id;
   real f, g;
@@ -371,10 +371,10 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
   FILE *fi = fopen(train_file, "rb");   // 读入训练语料文件指针
   fseek(fi, file_size / (long long)num_threads * (long long)id, SEEK_SET);  // 根据当前线程 ID 从相应的地方开始读取语料文件
   while (1) {
-    if (word_count - last_word_count > 10000) { // 输出训练进度和速度, 并更新学习率
-      word_count_actual += word_count - last_word_count;
+    if (word_count - last_word_count > 10000) { // 新读入10000个词时输出训练进度和速度, 并更新学习率和一些其他变量
+      word_count_actual += word_count - last_word_count;    // 更新所有线程已读取词语数量
       last_word_count = word_count;
-      if ((debug_mode > 1)) {
+      if ((debug_mode > 1)) {           // 如果命令行参数未标明不使用调试模式, 默认输出训练进度和速度
         now=clock();
         printf("%cAlpha: %f  Progress: %.2f%%  Words/thread/sec: %.2fk  ", 13, alpha,
          word_count_actual / (real)(iter * train_words + 1) * 100,
@@ -389,10 +389,10 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
         word = ReadWordIndex(fi);       // 从文件中读取一个词语
         if (feof(fi)) break;
         if (word == -1) continue;       // 同上一行, 判断文件末尾(见 116 行)
-        word_count++;
+        word_count++;                   //
         if (word == 0) break;           // 读取到换行符时截断句子
         // The subsampling randomly discards frequent words while keeping the ranking same
-        if (sample > 0) {               // subsampling TODO未理解
+        if (sample > 0) {               // subsampling, 以一定的概率忽略词频过高的词语(比如 of, a), 减少这些词语对其他词语的影响程度
           real ran = (sqrt(vocab[word].cn / (sample * train_words)) + 1) * (sample * train_words) / vocab[word].cn;
           next_random = next_random * (unsigned long long)25214903917 + 11;
           if (ran < (next_random & 0xFFFF) / (real)65536) continue;
@@ -403,24 +403,24 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
       }
       sentence_position = 0;
     }
-    if (feof(fi) || (word_count > train_words / num_threads)) {
-      word_count_actual += word_count - last_word_count;
-      local_iter--;
-      if (local_iter == 0) break;
-      word_count = 0;
+    if (feof(fi) || (word_count > train_words / num_threads)) { // 读到文件末尾或总读词数达到此线程上限时
+      word_count_actual += word_count - last_word_count;    // 更新所有线程已读取词语数量
+      local_iter--;                     // 结束一轮训练
+      if (local_iter == 0) break;       // 所有轮数训练完后退出线程
+      word_count = 0;                   // 一轮结束后清空以下变量
       last_word_count = 0;
       sentence_length = 0;
-      fseek(fi, file_size / (long long)num_threads * (long long)id, SEEK_SET);
+      fseek(fi, file_size / (long long)num_threads * (long long)id, SEEK_SET);  // 重新定位文件读取位置
       continue;
     }
-    word = sen[sentence_position];
+    word = sen[sentence_position];      // 从句子中取出一个词
     if (word == -1) continue;
     for (c = 0; c < layer1_size; c++) neu1[c] = 0;
-    for (c = 0; c < layer1_size; c++) neu1e[c] = 0;
+    for (c = 0; c < layer1_size; c++) neu1e[c] = 0; // 与上一行一起初始化TODO
     next_random = next_random * (unsigned long long)25214903917 + 11;
     b = next_random % window;
-    if (cbow) {  //train the cbow architecture
-      // in -> hidden
+    if (cbow) {  //train the cbow architecture.  CBOW 训练代码
+      // in -> hidden.  从输入层(词向量)向中间层传播
       cw = 0;
       for (a = b; a < window * 2 + 1 - b; a++) if (a != window) {
         c = sentence_position - window + a;
@@ -544,7 +544,7 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
 void TrainModel() {                     // 训练模型
   long a, b, c, d;
   FILE *fo;                             // 输出文件指针
-  pthread_t *pt = (pthread_t *)malloc(num_threads * sizeof(pthread_t)); // 线程数组
+  pthread_t *pt = (pthread_t *)malloc(num_threads * sizeof(pthread_t)); // 线程池
   printf("Starting training using file %s\n", train_file);
   starting_alpha = alpha;               // 初始学习率
   if (read_vocab_file[0] != 0) ReadVocab(); else LearnVocabFromTrainFile(); // 如果命令行参数中给定了字典文件, 则读取, 否则从语料库中建立字典
@@ -565,7 +565,7 @@ void TrainModel() {                     // 训练模型
       else for (b = 0; b < layer1_size; b++) fprintf(fo, "%lf ", syn0[a * layer1_size + b]);                    // 输出词向量
       fprintf(fo, "\n");
     }
-  } else {                              // 储存词语分类而不是向量, 使用 K-means 算法对词向量进行分类
+  } else {                              // 储存词语分类而不是向量, 使用 K-means 算法对词向量进行分类, K-means 算法暂不注释
     // Run K-means on the word vectors
     int clcn = classes, iter = 10, closeid;
     int *centcn = (int *)malloc(classes * sizeof(int));
@@ -683,7 +683,7 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-alpha", argc, argv)) > 0) alpha = atof(argv[i + 1]);                    // 设置初始学习率
   if ((i = ArgPos((char *)"-output", argc, argv)) > 0) strcpy(output_file, argv[i + 1]);            // 词向量储存文件
   if ((i = ArgPos((char *)"-window", argc, argv)) > 0) window = atoi(argv[i + 1]);                  // 设置窗口大小
-  if ((i = ArgPos((char *)"-sample", argc, argv)) > 0) sample = atof(argv[i + 1]);                  // TODO
+  if ((i = ArgPos((char *)"-sample", argc, argv)) > 0) sample = atof(argv[i + 1]);                  // 设置是否 subsampling
   if ((i = ArgPos((char *)"-hs", argc, argv)) > 0) hs = atoi(argv[i + 1]);                          // 设置 hierarchical softmax 标识
   if ((i = ArgPos((char *)"-negative", argc, argv)) > 0) negative = atoi(argv[i + 1]);              // 设置 negative sampling 标识
   if ((i = ArgPos((char *)"-threads", argc, argv)) > 0) num_threads = atoi(argv[i + 1]);            // 设置线程数量

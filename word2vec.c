@@ -42,7 +42,7 @@ int *vocab_hash;                        // 用哈希表的方式储存词语在�
 long long vocab_max_size = 1000, vocab_size = 0, layer1_size = 100; // 当前字典最大大小, 当前字典大小
 long long train_words = 0, word_count_actual = 0, iter = 5, file_size = 0, classes = 0; // TODO, 当前所有线程读取到的词语总数, 训练轮数, TODO文件大小, 词语分类数
 real alpha = 0.025, starting_alpha, sample = 1e-3;
-real *syn0, *syn1, *syn1neg, *expTable; // 储存 input embedding(最终词向量), output embedding,TODO
+real *syn0, *syn1, *syn1neg, *expTable; // 输入层储存 input embedding(最终词向量), output embedding,TODO
 clock_t start;
 
 int hs = 0, negative = 5;               // hierarchical softmax 标识, negative sampling 标识
@@ -364,7 +364,7 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
   long long word_count = 0, last_word_count = 0, sen[MAX_SENTENCE_LENGTH + 1];  // 此线程总共读取了多少词语, 上次读取了多少个词语, 词语数组(表示一个句子, 储存词语在字典中的索引)
   long long l1, l2, c, target, label, local_iter = iter;
   unsigned long long next_random = (long long)id;
-  real f, g;                            // TODO
+  real f, g;                            // 输出层霍夫曼编码的某一位
   clock_t now;                          // 用于储存当前时间
   real *neu1 = (real *)calloc(layer1_size, sizeof(real));
   real *neu1e = (real *)calloc(layer1_size, sizeof(real));
@@ -435,21 +435,21 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
         for (c = 0; c < layer1_size; c++) neu1[c] /= cw;    // CBOW 模型中作算术平均的一步
         if (hs) for (d = 0; d < vocab[word].codelen; d++) { // 如果使用 hierarchical softmax, 则扫描当前词语霍夫曼编码的每一位
           f = 0;
-          l2 = vocab[word].point[d] * layer1_size;  // TODO point 是什么
+          l2 = vocab[word].point[d] * layer1_size;  // 用于定位 output embedding
           // Propagate hidden -> output
-          for (c = 0; c < layer1_size; c++) f += neu1[c] * syn1[c + l2];
+          for (c = 0; c < layer1_size; c++) f += neu1[c] * syn1[c + l2];    // 对隐藏层和 output embedding 作内积
           if (f <= -MAX_EXP) continue;
-          else if (f >= MAX_EXP) continue;
-          else f = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
+          else if (f >= MAX_EXP) continue;  // 以上两句表明如果内积越界则忽略这一位
+          else f = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))]; // sigmoid 激活
           // 'g' is the gradient multiplied by the learning rate
-          g = (1 - vocab[word].code[d] - f) * alpha;
+          g = (1 - vocab[word].code[d] - f) * alpha;    // 计算梯度乘学习率
           // Propagate errors output -> hidden
-          for (c = 0; c < layer1_size; c++) neu1e[c] += g * syn1[c + l2];
+          for (c = 0; c < layer1_size; c++) neu1e[c] += g * syn1[c + l2];   // 将 loss 反穿暂存在一处
           // Learn weights hidden -> output
-          for (c = 0; c < layer1_size; c++) syn1[c + l2] += g * neu1[c];
+          for (c = 0; c < layer1_size; c++) syn1[c + l2] += g * neu1[c];    // 更新 output embedding
         }
         // NEGATIVE SAMPLING
-        if (negative > 0) for (d = 0; d < negative + 1; d++) {
+        if (negative > 0) for (d = 0; d < negative + 1; d++) {  // 如果进行 negative sampling, 则根据 sample 次数参数进行
           if (d == 0) {
             target = word;
             label = 1;
@@ -476,7 +476,7 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
           if (c >= sentence_length) continue;
           last_word = sen[c];
           if (last_word == -1) continue;
-          for (c = 0; c < layer1_size; c++) syn0[c + last_word * layer1_size] += neu1e[c];
+          for (c = 0; c < layer1_size; c++) syn0[c + last_word * layer1_size] += neu1e[c];  // 更新 input embedding(词向量)
         }
       }
     } else {  //train skip-gram

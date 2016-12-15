@@ -350,7 +350,7 @@ void InitNet() {
     a = posix_memalign((void **)&syn1neg, 128, (long long)vocab_size * layer1_size * sizeof(real));
     if (syn1neg == NULL) {printf("Memory allocation failed\n"); exit(1);}
     for (a = 0; a < vocab_size; a++) for (b = 0; b < layer1_size; b++)
-     syn1neg[a * layer1_size + b] = 0;
+     syn1neg[a * layer1_size + b] = 0;  // 将 negative sampling 数组初始化为全零向量
   }
   for (a = 0; a < vocab_size; a++) for (b = 0; b < layer1_size; b++) {  // 随机初始化 input embedding(词向量)
     next_random = next_random * (unsigned long long)25214903917 + 11;
@@ -455,7 +455,7 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
             label = 1;
           } else {
             next_random = next_random * (unsigned long long)25214903917 + 11;
-            target = table[(next_random >> 16) % table_size];
+            target = table[(next_random >> 16) % table_size];   // 使用均值分布表随机选取下一个词语
             if (target == 0) target = next_random % (vocab_size - 1) + 1;
             if (target == word) continue;
             label = 0;

@@ -85,3 +85,4 @@ Temporary Items
 # corpus and data
 text8
 tensorflow/vec.txt/*
+tensorflow/*.png

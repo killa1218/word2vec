@@ -81,3 +81,7 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# corpus and data
+text8
+tensorflow/vec.txt/*

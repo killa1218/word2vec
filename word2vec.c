@@ -37,7 +37,7 @@ struct vocab_word {                     // 霍夫曼编码树中的节点类型 
 char train_file[MAX_STRING], output_file[MAX_STRING];   // 训练文本文件和输出文件的文件名
 char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 struct vocab_word *vocab;               // 霍夫曼编码树的根节点, 同时也是所有词语的字典
-int binary = 0, cbow = 1, debug_mode = 2, window = 5, min_count = 5, num_threads = 12, min_reduce = 1;  // 以二进制储存标识, 以 cbow 模型训练标识, 调试模式标识, 训练窗口大小, TODO
+int binary = 0, cbow = 1, debug_mode = 2, window = 5, min_count = 5, num_threads = 12, min_reduce = 1;  // 以二进制储存标识, 以 cbow 模型训练标识, 调试模式标识, 训练最大窗口大小(实际的窗口大小随机生成, 但不超过此值), TODO
 int *vocab_hash;                        // 用哈希表的方式储存词语在字典中的索引
 long long vocab_max_size = 1000, vocab_size = 0, layer1_size = 100; // 当前字典最大大小, 当前字典大小
 long long train_words = 0, word_count_actual = 0, iter = 5, file_size = 0, classes = 0; // TODO, 当前所有线程读取到的词语总数, 训练轮数, TODO文件大小, 词语分类数
@@ -418,7 +418,7 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
     for (c = 0; c < layer1_size; c++) neu1[c] = 0;
     for (c = 0; c < layer1_size; c++) neu1e[c] = 0; // 与上一行一起初始化TODO
     next_random = next_random * (unsigned long long)25214903917 + 11;
-    b = next_random % window;
+    b = next_random % window;           // 随机选取实际 window 大小
     if (cbow) {  //train the cbow architecture.  CBOW 训练代码
       // in -> hidden.  从输入层(词向量)向中间层传播
       cw = 0;                           // 用于储存窗口内有多少词语传入神经网络
@@ -480,11 +480,11 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
         }
       }
     } else {  //train skip-gram
-      for (a = b; a < window * 2 + 1 - b; a++) if (a != window) {
-        c = sentence_position - window + a;
+      for (a = b; a < window * 2 + 1 - b; a++) if (a != window) {   // 对实际 window 内的所有词进行遍历
+        c = sentence_position - window + a; // 词语索引
         if (c < 0) continue;
         if (c >= sentence_length) continue;
-        last_word = sen[c];
+        last_word = sen[c];             // 为下一个词记住上次训练词语的索引
         if (last_word == -1) continue;
         l1 = last_word * layer1_size;
         for (c = 0; c < layer1_size; c++) neu1e[c] = 0;

@@ -50,13 +50,13 @@ int main(int argc, char **argv)
   fscanf(f, "%lld", &words);
   if (threshold) if (words > threshold) words = threshold;
   fscanf(f, "%lld", &size);
-  vocab = (char *)malloc(words * max_w * sizeof(char));
-  M = (float *)malloc(words * size * sizeof(float));
+  vocab = (char *)malloc(words * max_w * sizeof(char)); // 用于储存 words
+  M = (float *)malloc(words * size * sizeof(float));  // 用于储存 embedding
   if (M == NULL) {
     printf("Cannot allocate memory: %lld MB\n", words * size * sizeof(float) / 1048576);
     return -1;
   }
-  for (b = 0; b < words; b++) {
+  for (b = 0; b < words; b++) { // 读取文件中的数据
     a = 0;
     while (1) {
       vocab[b * max_w + a] = fgetc(f);
@@ -65,7 +65,13 @@ int main(int argc, char **argv)
     }
     vocab[b * max_w + a] = 0;
     for (a = 0; a < max_w; a++) vocab[b * max_w + a] = toupper(vocab[b * max_w + a]);
-    for (a = 0; a < size; a++) fread(&M[a + b * size], sizeof(float), 1, f);
+//if(b < 5) printf("%s\n", vocab+b*max_w);
+    for (a = 0; a < size; a++) {
+        fread(&M[a + b * size], sizeof(float), 1, f);
+//         if (b < 5) {
+//             printf(" %f", M[a + b * size]);
+//         }
+    }
     len = 0;
     for (a = 0; a < size; a++) len += M[a + b * size] * M[a + b * size];
     len = sqrt(len);
@@ -92,7 +98,7 @@ int main(int argc, char **argv)
       CCN = 0;
       continue;
     }
-    if (!strcmp(st1, "EXIT")) break;
+    if (!strcmp(st1, "EXIT")) break;  // 读取到 EXIT 则退出
     scanf("%s", st2);
     for (a = 0; a < strlen(st2); a++) st2[a] = toupper(st2[a]);
     scanf("%s", st3);

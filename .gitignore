@@ -83,6 +83,4 @@ Temporary Items
 .apdisk
 
 # corpus and data
-text8
-tensorflow/vec.txt/*
-tensorflow/*.png
+*.bin

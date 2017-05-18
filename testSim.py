@@ -4,6 +4,7 @@
 import sys
 import numpy as np
 import pickle as pk
+from struct import unpack
 
 print(sys.argv)
 
@@ -17,22 +18,27 @@ with open(fName, 'rb') as f:
     l = []
     vocab = {}
     count = 0
+    buf = ''
+    first = False
 
-    for line in f.readlines():
-        arr = line.split(bytes(' '.encode('utf8')))
+    while True:
+        ch = f.read(1).decode('utf8')
 
-        print(arr)
-
-        token = str(arr[0]).lower()
-        vocab[token] = count
-        count += 1
-        l.append(arr[1:embSize + 1])
-
-    # print(l)
+        if ch == '':
+            break
+        elif ch == ' ':
+            ll = [unpack('f', f.read(4))[0] for _ in range(embSize)]
+            l.append(ll)
+            vocab[buf.lower()] = count
+            count += 1
+        elif ch == '\n':
+            buf = ''
+        else:
+            buf += str(ch)
 
     matrix = np.array(l, dtype=np.float32)
 
-    avgNorm = np.sqrt(np.sum(matrix**2) / len(vocab))
+    avgNorm = np.linalg.norm(matrix, axis = 1).reshape([len(vocab), 1])
 
     matrix = matrix / avgNorm
 
@@ -53,6 +59,6 @@ with open('wordsim353.pkl', 'rb') as f:
             w2Idx.append(vocab[w2])
             labels.append(float(c))
 
-    norm = (np.sum(matrix[w1Idx, :] * matrix[w2Idx, :], axis = 1) - np.array(labels, dtype = np.float32))**2
+    norm = np.absolute(np.sum(matrix[w1Idx, :] * matrix[w2Idx, :], axis = 1) + 1 - np.array(labels, dtype = np.float32) / 5)
 
-    print("Avg Loss:", norm / len(labels))
+    print("Avg Loss:", np.sum(norm) / len(labels), "\nData Count:", len(labels))

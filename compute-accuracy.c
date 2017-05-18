@@ -24,7 +24,7 @@
 #include <ctype.h>
 
 const long long max_size = 2000;         // max length of strings
-const long long N = 1;                   // number of closest words
+const long long N = 50;                   // number of closest words
 const long long max_w = 50;              // max length of vocabulary entries
 
 int main(int argc, char **argv)
@@ -75,7 +75,7 @@ int main(int argc, char **argv)
     len = 0;
     for (a = 0; a < size; a++) len += M[a + b * size] * M[a + b * size];
     len = sqrt(len);
-    for (a = 0; a < size; a++) M[a + b * size] /= len;
+    for (a = 0; a < size; a++) M[a + b * size] /= len; // 读取数据时将向量全部转化为长度为1的向量
   }
   fclose(f);
   TCN = 0;
@@ -139,10 +139,13 @@ int main(int argc, char **argv)
         }
       }
     }
-    if (!strcmp(st4, bestw[0])) {
-      CCN++;
-      CACN++;
-      if (QID <= 5) SEAC++; else SYAC++;
+    for (a = 0; a < N; a ++) {
+      if (!strcmp(st4, bestw[a])) {
+        CCN++;
+        CACN++;
+        if (QID <= 5) SEAC++; else SYAC++;
+        break;
+      }
     }
     if (QID <= 5) SECN++; else SYCN++;
     TCN++;

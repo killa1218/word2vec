@@ -44,24 +44,64 @@ with open(fName, 'rb') as f:
 
     # Read Vectors
 
-with open('wordsim353.pkl', 'rb') as f:
-    testData = pk.load(f)
+# WordSim-353
+# with open('wordsim353.pkl', 'rb') as f:
+#     testData = pk.load(f)
+#     w1Idx = []
+#     w2Idx = []
+#     labels = []
+
+#     totalList = []
+
+#     for p, c in testData.items():
+#         w1 = p[0]
+#         w2 = p[1]
+
+#         if w1 in vocab and w2 in vocab:
+#             w1Idx.append(vocab[w1])
+#             w2Idx.append(vocab[w2])
+#             labels.append(float(c))
+
+#             totalList.append((float(c), (vocab[w1], vocab[w2])))
+
+# SemLex-999
+# with open('SimLex-999.txt', 'r') as f:
+#     w1Idx = []
+#     w2Idx = []
+#     labels = []
+#     totalList = []
+#     l = f.readline()
+
+#     for line in f.readlines():
+#         line = line.split('\t')
+#         w1 = line[0]
+#         w2 = line[1]
+
+#         if w1 in vocab and w2 in vocab:
+#             w1Idx.append(vocab[w1])
+#             w2Idx.append(vocab[w2])
+#             labels.append(float(line[3]))
+
+#             totalList.append((float(line[3]), (vocab[w1], vocab[w2])))
+
+# MEN
+with open('MEN_dataset_lemma_form_full', 'r') as f:
     w1Idx = []
     w2Idx = []
     labels = []
-
     totalList = []
 
-    for p, c in testData.items():
-        w1 = p[0]
-        w2 = p[1]
+    for line in f.readlines():
+        line = line.split(' ')
+        w1 = line[0]
+        w2 = line[1]
 
         if w1 in vocab and w2 in vocab:
             w1Idx.append(vocab[w1])
             w2Idx.append(vocab[w2])
-            labels.append(float(c))
+            labels.append(float(line[2]))
 
-            totalList.append((float(c), (vocab[w1], vocab[w2])))
+            totalList.append((float(line[2]), (vocab[w1], vocab[w2])))
 
     # norm = np.absolute(np.maximum(0, np.sum(matrix[w1Idx, :] * matrix[w2Idx, :], axis = 1)) - np.array(labels, dtype = np.float32) / 10)
     # print("Avg Loss:", np.sum(norm) / len(labels), "\nData Count:", len(labels))

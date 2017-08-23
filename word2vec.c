@@ -486,7 +486,7 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
         if (c >= sentence_length) continue;
         last_word = sen[c];             // 为下一个词记住上次训练词语的索引
         if (last_word == -1) continue;
-        l1 = last_word * layer1_size;
+        l1 = last_word * layer1_size; // 表示window中非中间词的位置
         for (c = 0; c < layer1_size; c++) neu1e[c] = 0;
         // HIERARCHICAL SOFTMAX
         if (hs) for (d = 0; d < vocab[word].codelen; d++) {
@@ -518,7 +518,7 @@ void *TrainModelThread(void *id) {      // 训练词向量线程
           }
           l2 = target * layer1_size;
           f = 0;
-          for (c = 0; c < layer1_size; c++) f += syn0[c + l1] * syn1neg[c + l2];
+          for (c = 0; c < layer1_size; c++) f += syn0[c + l1] * syn1neg[c + l2];  // syn1neg: Negative Sampling 使用了另一套embedding?
           if (f > MAX_EXP) g = (label - 1) * alpha;
           else if (f < -MAX_EXP) g = (label - 0) * alpha;
           else g = (label - expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))]) * alpha;

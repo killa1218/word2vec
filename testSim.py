@@ -50,6 +50,8 @@ with open('wordsim353.pkl', 'rb') as f:
     w2Idx = []
     labels = []
 
+    totalList = []
+
     for p, c in testData.items():
         w1 = p[0]
         w2 = p[1]
@@ -59,6 +61,28 @@ with open('wordsim353.pkl', 'rb') as f:
             w2Idx.append(vocab[w2])
             labels.append(float(c))
 
-    norm = np.absolute(np.sum(matrix[w1Idx, :] * matrix[w2Idx, :], axis = 1) + 1 - np.array(labels, dtype = np.float32) / 5)
+            totalList.append((float(c), (vocab[w1], vocab[w2])))
 
-    print("Avg Loss:", np.sum(norm) / len(labels), "\nData Count:", len(labels))
+    # norm = np.absolute(np.maximum(0, np.sum(matrix[w1Idx, :] * matrix[w2Idx, :], axis = 1)) - np.array(labels, dtype = np.float32) / 10)
+    # print("Avg Loss:", np.sum(norm) / len(labels), "\nData Count:", len(labels))
+
+    totalList.sort(key = lambda x: x[0])
+    rankDict = {}
+
+    for i, v in enumerate(totalList):
+        rankDict[v[1]] = i
+
+    cosines = np.maximum(0, np.sum(matrix[w1Idx, :] * matrix[w2Idx, :], axis = 1))
+
+    totalList = []
+    for i in range(len(w1Idx)):
+        totalList.append((cosines[i], (w1Idx[i], w2Idx[i])))
+
+    totalList.sort(key = lambda x: x[0])
+
+    summ = 0
+    n = len(w1Idx)
+    for i, v in enumerate(totalList):
+        summ += (rankDict[v[1]] - i)**2
+
+    print('Spearman\'s Correlation:', 1 - (6 * summ / n / (n**2 - 1)))
